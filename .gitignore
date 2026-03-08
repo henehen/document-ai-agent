@@ -1,1 +1,9 @@
-.env 
+.env
+.gradio/
+.vscode/
+__pycache__/
+*.pyc
+chroma_db/
+*.pdf
+*.docx
+*.txt

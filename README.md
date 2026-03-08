@@ -1,4 +1,4 @@
-# 🤖 Document AI Agent
+# 🤖 Document AI Agent v1.1
 
 An AI-powered customer service agent that reads your business 
 documents and answers customer questions instantly.

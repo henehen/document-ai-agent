@@ -1,27 +1,64 @@
 # ============================================
-# Document AI Agent - Web Interface Version
+# Document AI Agent - Web Version v1.1
+# Author: Henrique Faria Cl
+# Changes: Persistent memory, better errors,
+#          loading spinner
 # ============================================
 
 import os
+import json
 import gradio as gr
 from groq import Groq
+from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
-# ---- YOUR API KEY ----
+# ---- LOAD API KEYS ----
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-# ---- GLOBAL VARIABLES ----
+
+# ---- GLOBALS ----
 retriever = None
-client = Groq(api_key=GROQ_API_KEY)
+client = None
+MEMORY_FILE = "web_chat_history.json"
+
+def save_history(history):
+    """Save conversation history to file"""
+    try:
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(history, f, indent=2)
+    except Exception:
+        pass
+
+def load_history():
+    """Load conversation history from file"""
+    try:
+        if os.path.exists(MEMORY_FILE):
+            with open(MEMORY_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+def initialize_client():
+    """Initialize Groq client with error handling"""
+    global client
+    if not GROQ_API_KEY:
+        return "❌ No API key found! Create a .env file with: GROQ_API_KEY=your_key"
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        return None
+    except Exception as e:
+        return f"❌ Failed to connect to Groq: {str(e)}"
 
 def load_documents(files):
-    """Load uploaded documents and build AI memory"""
+    """Load uploaded documents"""
     global retriever
 
     if not files:
-        return "❌ Please upload at least one document!"
+        return "⚠️ Please upload at least one document!"
 
     documents = []
     supported = {
@@ -31,50 +68,67 @@ def load_documents(files):
     }
 
     loaded = []
+    failed = []
+
     for file in files:
         ext = os.path.splitext(file.name)[1].lower()
         if ext in supported:
-            loader = supported[ext](file.name)
-            documents.extend(loader.load())
-            loaded.append(os.path.basename(file.name))
+            try:
+                loader = supported[ext](file.name)
+                documents.extend(loader.load())
+                loaded.append(os.path.basename(file.name))
+            except Exception as e:
+                failed.append(f"{os.path.basename(file.name)}: {str(e)}")
+        else:
+            failed.append(f"{os.path.basename(file.name)}: unsupported format")
 
     if not documents:
-        return "❌ No supported documents found! Use PDF, DOCX or TXT files."
+        return "❌ No supported documents loaded!\n💡 Supported formats: PDF, DOCX, TXT"
 
-    # Build AI memory
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50
-    )
-    chunks = splitter.split_documents(documents)
+    try:
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=500,
+            chunk_overlap=50
+        )
+        chunks = splitter.split_documents(documents)
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        vectorstore = Chroma.from_documents(chunks, embeddings)
+        retriever = vectorstore.as_retriever()
+    except Exception as e:
+        return f"❌ Failed to build AI memory: {str(e)}"
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2"
-    )
-    vectorstore = Chroma.from_documents(chunks, embeddings)
-    retriever = vectorstore.as_retriever()
+    status = f"✅ Successfully loaded {len(loaded)} document(s):\n"
+    status += "\n".join([f"📄 {name}" for name in loaded])
 
-    return f"✅ Successfully loaded {len(loaded)} document(s):\n" + "\n".join([f"📄 {name}" for name in loaded])
+    if failed:
+        status += f"\n\n⚠️ Failed to load:\n"
+        status += "\n".join([f"❌ {f}" for f in failed])
+
+    return status
 
 def chat(message, history):
-    """Process customer question and return answer"""
-    global retriever
-
-    if retriever is None:
-        return "⚠️ Please upload your documents first using the panel on the left!"
+    """Process question and return answer"""
+    global retriever, client
 
     if not message.strip():
         return "Please type a question!"
 
-    # Get relevant document chunks
-    relevant_docs = retriever.invoke(message)
-    context = "\n\n".join([doc.page_content for doc in relevant_docs])
+    if retriever is None:
+        return "⚠️ Please upload your documents first!"
 
-    # Build messages
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are a professional and friendly customer service agent.
+    if client is None:
+        error = initialize_client()
+        if error:
+            return error
+
+    try:
+        relevant_docs = retriever.invoke(message)
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+
+        messages = [
+            {
+                "role": "system",
+                "content": f"""You are a professional and friendly customer service agent.
 Answer questions based ONLY on the documents provided.
 
 Documents content:
@@ -86,33 +140,53 @@ Rules:
 - If the answer isn't in the documents, politely say so
 - Suggest contacting support for unknown questions
 - Never make up information"""
-        }
-    ]
+            }
+        ]
 
-    # Add chat history
-    for human, assistant in history[-3:]:
-        messages.append({"role": "user", "content": human})
-        messages.append({"role": "assistant", "content": assistant})
+        for msg in history[-6:]:
+            if isinstance(msg, dict):
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+            else:
+                human, assistant = msg
+                messages.append({"role": "user", "content": human})
+                messages.append({"role": "assistant", "content": assistant})
 
-    messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": message})
 
-    # Get answer
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        max_tokens=500
-    )
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            max_tokens=500
+        )
 
-    return response.choices[0].message.content
+        answer = response.choices[0].message.content
+        save_history(history)
+        return answer
 
-# ---- BUILD WEB INTERFACE ----
-with gr.Blocks(
-    theme=gr.themes.Soft(),
-    title="Document AI Agent"
-) as demo:
+    except Exception as e:
+        if "401" in str(e):
+            return "❌ Invalid API key. Please check your .env file."
+        elif "429" in str(e):
+            return "⏳ Rate limit reached. Please wait a moment and try again."
+        elif "503" in str(e):
+            return "🔄 AI service temporarily unavailable. Please try again."
+        else:
+            return f"❌ Something went wrong: {str(e)}"
+
+# ---- Initialize client on startup ----
+initialize_client()
+
+# ---- Load previous history ----
+previous_history = load_history()
+
+# ---- BUILD INTERFACE ----
+with gr.Blocks(title="Document AI Agent v1.1") as demo:
 
     gr.Markdown("""
-    # 🤖 Document AI Agent
+    # 🤖 Document AI Agent v1.1
     ### Upload your business documents and let AI answer customer questions instantly!
     """)
 
@@ -131,13 +205,21 @@ with gr.Blocks(
             upload_status = gr.Textbox(
                 label="Status",
                 interactive=False,
-                lines=4
+                lines=5
             )
             upload_btn.click(
                 fn=load_documents,
                 inputs=[file_upload],
                 outputs=[upload_status]
             )
+
+            gr.Markdown("### 💡 Tips")
+            gr.Markdown("""
+            - Upload PDF, DOCX or TXT files
+            - Ask questions in plain English
+            - Agent answers based on YOUR documents
+            - Unknown questions redirect to support
+            """)
 
         with gr.Column(scale=2):
             gr.Markdown("### 💬 Chat With Your Documents")

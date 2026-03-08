@@ -1,13 +1,14 @@
 # ============================================
-# Document AI Agent - Web Version v1.1
+# Document AI Agent - Web Version v1.2
 # Author: Henrique Faria Cl
-# Changes: Persistent memory, better errors,
-#          loading spinner
+# Changes: Multiple languages, custom
+#          personality, chat export
 # ============================================
 
 import os
 import json
 import gradio as gr
+from datetime import datetime
 from groq import Groq
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
@@ -22,28 +23,79 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # ---- GLOBALS ----
 retriever = None
 client = None
+CONFIG_FILE = "config.json"
 MEMORY_FILE = "web_chat_history.json"
 
+def load_config():
+    """Load business configuration"""
+    default = {
+        "agent_name": "Agent",
+        "company_name": "Our Business",
+        "tone": "professional",
+        "support_email": "support@business.com",
+        "welcome_message": "Hello! How can I help you today?",
+        "unknown_answer": "I'm sorry, I don't have that information. Please contact our support team."
+    }
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+                default.update(config)
+    except Exception:
+        pass
+    return default
+
 def save_history(history):
-    """Save conversation history to file"""
+    """Save conversation history"""
     try:
         with open(MEMORY_FILE, "w") as f:
             json.dump(history, f, indent=2)
     except Exception:
         pass
 
-def load_history():
-    """Load conversation history from file"""
+def export_history(history):
+    """Export chat history to TXT and JSON files"""
+    if not history:
+        return "⚠️ No conversation history to export!"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exported = []
+
+    # Export TXT
+    txt_file = f"export_{timestamp}.txt"
     try:
-        if os.path.exists(MEMORY_FILE):
-            with open(MEMORY_FILE, "r") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return []
+        with open(txt_file, "w", encoding="utf-8") as f:
+            f.write(f"Chat History Export\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 50 + "\n\n")
+            for i, msg in enumerate(history, 1):
+                if isinstance(msg, dict):
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    f.write(f"[{i}] {role.capitalize()}: {content}\n\n")
+                else:
+                    q, a = msg
+                    f.write(f"Customer: {q}\nAgent: {a}\n\n")
+        exported.append(f"📄 {txt_file}")
+    except Exception as e:
+        exported.append(f"❌ TXT failed: {str(e)}")
+
+    # Export JSON
+    json_file = f"export_{timestamp}.json"
+    try:
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "conversations": history
+            }, f, indent=2, ensure_ascii=False)
+        exported.append(f"📊 {json_file}")
+    except Exception as e:
+        exported.append(f"❌ JSON failed: {str(e)}")
+
+    return "✅ Exported successfully!\n" + "\n".join(exported)
 
 def initialize_client():
-    """Initialize Groq client with error handling"""
+    """Initialize Groq client"""
     global client
     if not GROQ_API_KEY:
         return "❌ No API key found! Create a .env file with: GROQ_API_KEY=your_key"
@@ -83,13 +135,10 @@ def load_documents(files):
             failed.append(f"{os.path.basename(file.name)}: unsupported format")
 
     if not documents:
-        return "❌ No supported documents loaded!\n💡 Supported formats: PDF, DOCX, TXT"
+        return "❌ No supported documents loaded!\n💡 Supported: PDF, DOCX, TXT"
 
     try:
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50
-        )
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         chunks = splitter.split_documents(documents)
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vectorstore = Chroma.from_documents(chunks, embeddings)
@@ -97,18 +146,17 @@ def load_documents(files):
     except Exception as e:
         return f"❌ Failed to build AI memory: {str(e)}"
 
-    status = f"✅ Successfully loaded {len(loaded)} document(s):\n"
+    status = f"✅ Loaded {len(loaded)} document(s):\n"
     status += "\n".join([f"📄 {name}" for name in loaded])
-
     if failed:
-        status += f"\n\n⚠️ Failed to load:\n"
-        status += "\n".join([f"❌ {f}" for f in failed])
-
+        status += f"\n\n⚠️ Failed:\n" + "\n".join([f"❌ {f}" for f in failed])
     return status
 
 def chat(message, history):
     """Process question and return answer"""
     global retriever, client
+
+    config = load_config()
 
     if not message.strip():
         return "Please type a question!"
@@ -128,17 +176,23 @@ def chat(message, history):
         messages = [
             {
                 "role": "system",
-                "content": f"""You are a professional and friendly customer service agent.
-Answer questions based ONLY on the documents provided.
+                "content": f"""You are {config['agent_name']}, a customer service agent for {config['company_name']}.
+Your tone is {config['tone']}.
 
-Documents content:
+IMPORTANT LANGUAGE RULE:
+- Detect the language the customer is writing in
+- Always respond in the SAME language as the customer
+- If they write in French, respond in French
+- If they write in Spanish, respond in Spanish
+- If they write in English, respond in English
+
+Answer questions based ONLY on this business information:
 {context}
 
 Rules:
-- Always be friendly and professional
+- Always be {config['tone']} and helpful
 - Keep answers clear and concise
-- If the answer isn't in the documents, politely say so
-- Suggest contacting support for unknown questions
+- If answer isn't in documents say: "{config['unknown_answer']}"
 - Never make up information"""
             }
         ]
@@ -163,31 +217,29 @@ Rules:
         )
 
         answer = response.choices[0].message.content
-        save_history(history)
+        save_history(history + [{"role": "user", "content": message}, {"role": "assistant", "content": answer}])
         return answer
 
     except Exception as e:
         if "401" in str(e):
             return "❌ Invalid API key. Please check your .env file."
         elif "429" in str(e):
-            return "⏳ Rate limit reached. Please wait a moment and try again."
+            return "⏳ Rate limit reached. Please wait a moment."
         elif "503" in str(e):
-            return "🔄 AI service temporarily unavailable. Please try again."
+            return "🔄 AI service temporarily unavailable."
         else:
             return f"❌ Something went wrong: {str(e)}"
 
-# ---- Initialize client on startup ----
+# ---- Initialize ----
+config = load_config()
 initialize_client()
 
-# ---- Load previous history ----
-previous_history = load_history()
-
 # ---- BUILD INTERFACE ----
-with gr.Blocks(title="Document AI Agent v1.1") as demo:
+with gr.Blocks(title=f"{config['agent_name']} - Document AI Agent v1.2") as demo:
 
-    gr.Markdown("""
-    # 🤖 Document AI Agent v1.1
-    ### Upload your business documents and let AI answer customer questions instantly!
+    gr.Markdown(f"""
+    # 🤖 {config['agent_name']} — {config['company_name']}
+    ### Powered by Document AI Agent v1.2
     """)
 
     with gr.Row():
@@ -213,25 +265,44 @@ with gr.Blocks(title="Document AI Agent v1.1") as demo:
                 outputs=[upload_status]
             )
 
+            gr.Markdown("### 💾 Export Chat")
+            export_btn = gr.Button(
+                "📥 Export History",
+                variant="secondary"
+            )
+            export_status = gr.Textbox(
+                label="Export Status",
+                interactive=False,
+                lines=3
+            )
+
             gr.Markdown("### 💡 Tips")
-            gr.Markdown("""
+            gr.Markdown(f"""
             - Upload PDF, DOCX or TXT files
-            - Ask questions in plain English
-            - Agent answers based on YOUR documents
-            - Unknown questions redirect to support
+            - Ask in ANY language
+            - {config['agent_name']} replies in your language
+            - Export saves TXT and JSON
             """)
 
         with gr.Column(scale=2):
-            gr.Markdown("### 💬 Chat With Your Documents")
+            gr.Markdown(f"### 💬 Chat with {config['agent_name']}")
             chatbot = gr.ChatInterface(
                 fn=chat,
                 examples=[
                     "What are your opening hours?",
                     "What is your return policy?",
-                    "How do I contact support?",
-                    "What payment methods do you accept?",
-                    "How long does delivery take?"
+                    "Quelles sont vos heures d'ouverture?",
+                    "¿Cuáles son sus horarios?",
+                    "How do I contact support?"
                 ],
             )
+            export_btn.click(
+    fn=lambda: export_history(
+        json.load(open(MEMORY_FILE)) 
+        if os.path.exists(MEMORY_FILE) 
+        else []
+    ),
+    outputs=[export_status]
+)
 
 demo.launch(share=True)

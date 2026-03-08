@@ -1,0 +1,8 @@
+{
+    "agent_name": "Sarah",
+    "company_name": "My Business",
+    "tone": "professional",
+    "support_email": "support@mybusiness.com",
+    "welcome_message": "Hello! I'm Sarah, your virtual assistant. How can I help you today?",
+    "unknown_answer": "I'm sorry, I don't have that information. Please contact us at support@mybusiness.com and we'll be happy to help!"
+}

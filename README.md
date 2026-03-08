@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 🤖 Document AI Agent
 
 An AI-powered customer service agent that reads your business 
@@ -84,6 +83,3 @@ Add .env to your .gitignore before pushing to GitHub.
 ## 📄 License
 
 MIT License — free to use and modify.
-=======
-"# document-ai-agent" 
->>>>>>> afbc40ba76ad86068fc66bf589e6957e792cc6a8

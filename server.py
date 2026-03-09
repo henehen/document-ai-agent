@@ -15,8 +15,9 @@ from groq import Groq
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 import tempfile
 import shutil
 
@@ -126,6 +127,19 @@ async def home():
 </html>
 """)
 
+# ---- SIMPLE LIGHTWEIGHT RETRIEVER ----
+class SimpleRetriever:
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.vectorizer = TfidfVectorizer()
+        texts = [c.page_content for c in chunks]
+        self.matrix = self.vectorizer.fit_transform(texts)
+
+    def invoke(self, query):
+        query_vec = self.vectorizer.transform([query])
+        scores = cosine_similarity(query_vec, self.matrix)[0]
+        top_indices = np.argsort(scores)[-4:][::-1]
+        return [self.chunks[i] for i in top_indices]
 @app.post("/upload")
 async def upload_documents(files: list[UploadFile] = File(...)):
     """Upload and process business documents"""
@@ -166,10 +180,7 @@ async def upload_documents(files: list[UploadFile] = File(...)):
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     chunks = splitter.split_documents(documents)
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    vectorstore = Chroma.from_documents(chunks, embeddings)
-    retriever = vectorstore.as_retriever()
-
+    retriever = SimpleRetriever(chunks)
     return {
         "success": True,
         "loaded": loaded,

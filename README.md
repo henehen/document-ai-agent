@@ -1,4 +1,4 @@
-# 🤖 Document AI Agent v1.1
+# 🤖 Document AI Agent v1.2
 
 An AI-powered customer service agent that reads your business 
 documents and answers customer questions instantly.
@@ -15,6 +15,9 @@ Built with Python, Groq, LangChain and Gradio.
 - ⚡ Fast responses powered by Groq AI
 - 🔒 Runs on your own API key
 - 🆓 Completely free to run
+- 🌍 Automatic language detection
+- 🎭 Custom agent personality
+- 💾 Chat history export (TXT + JSON)
 
 ---
 

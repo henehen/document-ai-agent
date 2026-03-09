@@ -8,4 +8,6 @@ chroma_db/
 *.docx 
 *.txt 
 chat_history.json 
-web_chat_history.json
+web_chat_history.json 
+export_*.json 
+export_*.txt

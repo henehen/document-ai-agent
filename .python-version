@@ -1,0 +1,2 @@
+cd C:\Users\compteadmin\document-ai-agent
+echo 3.11.8 > .python-version

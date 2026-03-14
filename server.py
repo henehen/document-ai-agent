@@ -48,7 +48,7 @@ def load_config():
 
 # ---- GLOBALS ----
 retriever = None
-client = Groq(api_key=GROQ_API_KEY)
+client = None
 chat_histories = {}
 
 # ---- FASTAPI APP ----
@@ -205,6 +205,10 @@ async def chat(
         chat_histories[session_id] = []
 
     history = chat_histories[session_id]
+
+    global client
+    if client is None:
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
     try:
         relevant_docs = retriever.invoke(message)

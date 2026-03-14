@@ -188,6 +188,14 @@ async def upload_documents(files: list[UploadFile] = File(...)):
         "message": f"✅ Loaded {len(loaded)} document(s)"
     }
 
+@app.get("/debug-key")
+async def debug_key():
+    key = os.environ.get("GROQ_API_KEY", "NOT FOUND")
+    return {
+        "key_found": key != "NOT FOUND",
+        "key_length": len(key),
+        "key_start": key[:8] if len(key) > 8 else "too short"
+    }
 @app.post("/chat")
 async def chat(
     message: str = Form(...),

@@ -261,7 +261,7 @@ Rules:
 
     except Exception as e:
         if "401" in str(e):
-            return {"answer": "❌ API key error. Please contact support."}
+            return {"answer": f"❌ 401 Error: {str(e)}"}
         elif "429" in str(e):
             return {"answer": "⏳ Too many requests. Please wait a moment."}
         else:

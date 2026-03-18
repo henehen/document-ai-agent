@@ -24,7 +24,7 @@ Built with Python, Groq, LangChain and Gradio.
 ## 🚀 Installation
 
 ### 1. Clone the repository
-git clone https://github.com/yourusername/document-ai-agent.git
+git clone https://github.com/henehen/document-ai-agent.git
 cd document-ai-agent
 
 ### 2. Install dependencies

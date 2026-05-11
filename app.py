@@ -1,5 +1,5 @@
 # ============================================
-# Document AI Agent - Web Version v2.0
+# Document AI Agent - Web Version v3.0
 # Refactored to use core.py
 # ============================================
 

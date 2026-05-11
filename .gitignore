@@ -1,13 +1,28 @@
-.env 
-.gradio/ 
-.vscode/ 
-__pycache__/ 
-*.pyc 
-chroma_db/ 
-*.pdf 
-*.docx 
-*.txt 
-chat_history.json 
-web_chat_history.json 
-export_*.json 
+.env
+.gradio/
+.vscode/
+__pycache__/
+*.pyc
+
+# ChromaDB persistent store
+chroma_db/
+
+# Uploaded documents (don't track user data)
+*.pdf
+*.docx
+
+# Chat logs and exports
+chat_history.json
+web_chat_history.json
+analytics.json
+conversation_logs.json
+export_*.json
 export_*.txt
+
+# Stray files
+curl
+requirements_full.txt
+
+# OS files
+.DS_Store
+Thumbs.db

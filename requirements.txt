@@ -1,11 +1,30 @@
-fastapi 
-uvicorn 
-python-multipart 
-groq 
-python-dotenv 
-langchain-community 
-langchain-text-splitters 
-pypdf 
-docx2txt 
-scikit-learn 
-numpy
+# Pinned to currently-installed, mutually-compatible versions.
+# Tested with Python 3.11.8.
+
+# Core
+groq==0.37.1
+python-dotenv==1.2.1
+
+# LangChain + Retrieval
+langchain-community==0.4.1
+langchain-text-splitters==1.1.1
+langchain-huggingface==1.2.1
+langchain-chroma==1.1.0
+chromadb==1.5.2
+sentence-transformers==5.2.3
+
+# Document loaders
+pypdf==6.7.4
+docx2txt==0.9
+
+# Web server (server.py)
+fastapi==0.135.1
+uvicorn==0.41.0
+python-multipart==0.0.22
+
+# Gradio UI (app.py)
+gradio==6.8.0
+
+# Utilities
+numpy==2.4.2
+scikit-learn==1.8.0

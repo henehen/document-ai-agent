@@ -1,1 +1,11 @@
-(echo services: && echo   - type: web && echo     name: document-ai-agent && echo     runtime: python && echo     buildCommand: pip install -r requirements.txt && echo     startCommand: bash start.sh) > render.yaml
+services:
+  - type: web
+    name: document-ai-agent
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

@@ -190,14 +190,21 @@ def build_retriever(documents: list, persist: bool = True):
             chunk_overlap=100,
         )
         chunks = splitter.split_documents(documents)
-        logger.info("Split into %d chunks", len(chunks))
+
+        # Filter out empty or whitespace-only chunks
+        chunks = [c for c in chunks if c.page_content.strip()]
+        logger.info("Split into %d non-empty chunks", len(chunks))
+
+        if not chunks:
+            logger.error("All chunks were empty — document may be unreadable or image-based")
+            return None
 
         retriever = TFIDFRetriever(chunks)
         logger.info("TF-IDF retriever ready (%d chunks)", len(chunks))
         return retriever
 
     except Exception as e:
-        logger.error("Failed to build retriever: %s", e)
+        logger.error("Failed to build retriever: %s", e, exc_info=True)
         return None
 
 

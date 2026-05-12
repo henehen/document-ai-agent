@@ -12,8 +12,9 @@ from groq import Groq
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 # ---- LOGGING ----
 logging.basicConfig(
@@ -27,7 +28,6 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 # ---- CONSTANTS ----
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
-CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 SUPPORTED_EXTENSIONS = {
     ".pdf": PyPDFLoader,
     ".docx": Docx2txtLoader,
@@ -36,8 +36,6 @@ SUPPORTED_EXTENSIONS = {
 
 # Use a multilingual model so French/Spanish/Portuguese queries
 # match English documents (and vice versa)
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-
 # Sentinel the LLM is asked to prepend when it cannot answer from the
 # provided documents. We strip it before returning the answer to the user
 # and use it as a language-agnostic signal for analytics.
@@ -155,14 +153,32 @@ def load_documents_from_files(file_paths: list[str]) -> tuple[list, list[str], l
 
 
 # ======================
-# Retriever (Vector Store)
+# Retriever (TF-IDF)
 # ======================
+
+class TFIDFRetriever:
+    """Lightweight in-memory retriever using TF-IDF + cosine similarity."""
+
+    def __init__(self, documents: list, k: int = 4):
+        self.documents = documents
+        self.k = k
+        self.vectorizer = TfidfVectorizer()
+        texts = [doc.page_content for doc in documents]
+        self.matrix = self.vectorizer.fit_transform(texts)
+
+    def invoke(self, query: str) -> list:
+        query_vec = self.vectorizer.transform([query])
+        scores = cosine_similarity(query_vec, self.matrix)[0]
+        top_k = np.argsort(scores)[-self.k:][::-1]
+        return [self.documents[i] for i in top_k]
+
 
 def build_retriever(documents: list, persist: bool = True):
     """
-    Build a ChromaDB retriever from documents.
-    Uses multilingual embeddings and persists to disk by default.
-    Returns a retriever object or None on failure.
+    Build a TF-IDF retriever from documents.
+    The persist parameter is kept for API compatibility but is unused
+    (TF-IDF is in-memory only).
+    Returns a TFIDFRetriever or None on failure.
     """
     if not documents:
         logger.error("No documents provided to build retriever")
@@ -171,32 +187,13 @@ def build_retriever(documents: list, persist: bool = True):
     try:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=500,
-            chunk_overlap=100,  # Increased from 50 for better context
+            chunk_overlap=100,
         )
         chunks = splitter.split_documents(documents)
         logger.info("Split into %d chunks", len(chunks))
 
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-
-        if persist:
-            if os.path.exists(CHROMA_DIR):
-                import shutil
-                try:
-                    shutil.rmtree(CHROMA_DIR)
-                    logger.info("Cleared old vector store at %s", CHROMA_DIR)
-                except Exception as e:
-                    logger.warning("Failed to clear old chroma_db: %s", e)
-            vectorstore = Chroma.from_documents(
-                chunks, embeddings, persist_directory=CHROMA_DIR
-            )
-            logger.info("Vector store persisted to %s", CHROMA_DIR)
-        else:
-            vectorstore = Chroma.from_documents(chunks, embeddings)
-
-        retriever = vectorstore.as_retriever(
-            search_kwargs={"k": 4}
-        )
-        logger.info("Retriever ready (%d chunks)", len(chunks))
+        retriever = TFIDFRetriever(chunks)
+        logger.info("TF-IDF retriever ready (%d chunks)", len(chunks))
         return retriever
 
     except Exception as e:
@@ -205,26 +202,8 @@ def build_retriever(documents: list, persist: bool = True):
 
 
 def load_persisted_retriever():
-    """Load a previously persisted ChromaDB retriever from disk."""
-    if not os.path.exists(CHROMA_DIR):
-        logger.info("No persisted vector store found at %s", CHROMA_DIR)
-        return None
-    try:
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        vectorstore = Chroma(
-            persist_directory=CHROMA_DIR,
-            embedding_function=embeddings,
-        )
-        # Check if the store actually has data
-        if vectorstore._collection.count() == 0:
-            logger.info("Persisted vector store is empty")
-            return None
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-        logger.info("Loaded persisted retriever (%d docs)", vectorstore._collection.count())
-        return retriever
-    except Exception as e:
-        logger.error("Failed to load persisted retriever: %s", e)
-        return None
+    """TF-IDF is in-memory only — nothing to load from disk."""
+    return None
 
 
 # ======================
